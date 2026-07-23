@@ -1,0 +1,460 @@
+<!DOCTYPE html>
+<html lang="ru" class="intro-active">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Дринкит</title>
+<meta name="description" content="Дринкит.">
+<style>
+@font-face {
+    font-family: 'Evolventa';
+    src: url('assets/fonts/Evolventa-Regular.ttf') format('truetype');
+    font-weight: 400;
+    font-style: normal;
+    font-display: swap;
+}
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    background: #0a0a0a;
+}
+
+/* Locks the page at the top (no scrolling at all) until the order is
+   confirmed, so the scroll-scrubbed hero only becomes reachable once the
+   visitor has actively opted in via the button below. The class lives on
+   <html> because that's the actual scrolling element (document.scrollingElement),
+   not <body> — overflow:hidden on body alone wouldn't stop the page scrolling. */
+html.intro-active {
+    overflow: hidden;
+    height: 100%;
+}
+
+/* Hero takes extra scroll height so the pinned video can be scrubbed
+   by scroll position before releasing into the rest of the page. */
+.hero {
+    position: relative;
+    height: 300vh;
+}
+
+/* Fixed (not sticky) so the video is pinned in place for the entire time
+   the hero section is in view — released only via the class below, which
+   is driven by IntersectionObserver rather than CSS scroll thresholds. */
+.hero-pin {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100dvh;
+    overflow: hidden;
+    background: #000;
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 0.4s ease;
+    z-index: 5;
+}
+
+.hero-pin.is-pinned {
+    opacity: 1;
+    visibility: visible;
+}
+
+.hero-video {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.hero-overlay {
+    position: absolute;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.15);
+}
+
+/* Each ingredient gets its own label + curved arrow pointing at the cup,
+   positioned around it like a diagram callout. Every label fades in when
+   its ingredient lands and then simply stays — by the end of the clip all
+   six are visible at once, annotating the finished drink. */
+.hero-annotation {
+    position: absolute;
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    width: 38%;
+    opacity: 0;
+    color: #fff;
+    font-family: 'Evolventa', sans-serif;
+    font-size: clamp(0.95rem, 3.8vw, 1.15rem);
+    line-height: 1.22;
+    text-shadow: 0 2px 10px rgba(0, 0, 0, 0.6);
+}
+
+.hero-annotation.side-left {
+    left: 3%;
+    text-align: left;
+    flex-direction: row;
+}
+
+.hero-annotation.side-right {
+    right: 3%;
+    text-align: right;
+    flex-direction: row-reverse;
+}
+
+.hero-annotation-arrow {
+    width: 20vw;
+    max-width: 68px;
+    height: 20vw;
+    max-height: 68px;
+    flex-shrink: 0;
+    overflow: visible;
+}
+
+.hero-annotation-arrow.arrow-flip-x { transform: scaleX(-1); }
+.hero-annotation-arrow.arrow-flip-y { transform: scaleY(-1); }
+.hero-annotation-arrow.arrow-flip-xy { transform: scale(-1, -1); }
+
+/* Order-confirmation card shown over the very first frame, before the
+   visitor has opted in to scrubbing through the hero. Sits as the last
+   child of .hero-pin so it paints above the video/overlay/annotations
+   without needing an explicit z-index. */
+.hero-intro {
+    position: absolute;
+    left: 6%;
+    right: 6%;
+    top: 7%;
+    z-index: 10;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.9rem;
+    text-align: center;
+    padding: 1.5rem 1.3rem;
+    background: rgba(0, 0, 0, 0.4);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    border-radius: 20px;
+    transition: opacity 0.5s ease, visibility 0.5s ease;
+}
+
+.hero-intro.is-hidden {
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+}
+
+.hero-intro-label {
+    font-family: 'Evolventa', sans-serif;
+    color: rgba(255, 255, 255, 0.85);
+    font-size: clamp(1rem, 4.2vw, 1.2rem);
+}
+
+.hero-intro-title {
+    font-family: 'Evolventa', sans-serif;
+    font-weight: 400;
+    color: #fff;
+    font-size: clamp(1.7rem, 7.5vw, 2.3rem);
+    line-height: 1.2;
+    margin-top: -0.4rem;
+}
+
+.hero-intro-button {
+    margin-top: 0.3rem;
+    border: none;
+    border-radius: 100px;
+    padding: 0.95rem 1.7rem;
+    background: #fff;
+    color: #0a0a0a;
+    font-family: 'Evolventa', sans-serif;
+    font-size: clamp(0.95rem, 4vw, 1.05rem);
+    cursor: pointer;
+}
+
+/* "Preparing" HUD — takes over the spot the order card occupied, once the
+   order card itself has faded out. The arc underneath tracks the exact
+   same 0–1 scroll progress that drives the video scrub, so it fills up
+   in lockstep with how far through making the drink the visitor has
+   scrolled. */
+.hero-progress {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 6%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.6rem;
+    opacity: 0;
+    transition: opacity 0.6s ease 0.25s;
+}
+
+.hero-progress.is-visible {
+    opacity: 1;
+}
+
+.hero-progress-label {
+    font-family: 'Evolventa', sans-serif;
+    color: #fff;
+    font-size: clamp(1.05rem, 4.4vw, 1.3rem);
+    text-shadow: 0 2px 10px rgba(0, 0, 0, 0.6);
+}
+
+.hero-progress-arc {
+    width: 52%;
+    max-width: 220px;
+    height: auto;
+    overflow: visible;
+}
+
+.hero-progress-fill {
+    transition: stroke-dashoffset 0.05s linear;
+}
+
+/* Next section — fades in after the pinned hero releases */
+.next-section {
+    /* A few extra px beyond exactly one viewport guarantee real scroll
+       room past the hero's exit point, so it's never possible to hit the
+       document's absolute scroll ceiling at the exact same instant the
+       hero clears the viewport (which would leave the intersection stuck
+       on a zero-area touching edge instead of resolving to "left"). */
+    min-height: calc(100dvh + 40px);
+    background: #0a0a0a;
+    opacity: 0;
+    transform: translateY(40px);
+    transition: opacity 0.8s ease, transform 0.8s ease;
+}
+
+.next-section.is-visible {
+    opacity: 1;
+    transform: translateY(0);
+}
+</style>
+</head>
+<body>
+
+<section class="hero" id="hero">
+    <div class="hero-pin" id="hero-pin">
+        <video
+            id="hero-video"
+            class="hero-video"
+            src="assets/drink.mp4"
+            muted
+            playsinline
+            preload="auto"
+            disablepictureinpicture
+            aria-hidden="true"
+        ></video>
+        <div class="hero-overlay"></div>
+
+        <div class="hero-annotation side-left" id="caption-1" style="top: 79%;">
+            <span>Ежевичные шарики</span>
+            <svg class="hero-annotation-arrow arrow-flip-y" viewBox="0 0 44 44" fill="none">
+                <path d="M4,8 C4,28 26,32 36,26" stroke="#fff" stroke-width="1.6" stroke-linecap="round"/>
+                <path d="M36,26 L28,24 M36,26 L32,34" stroke="#fff" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+        </div>
+
+        <div class="hero-annotation side-right" id="caption-2" style="top: 68%;">
+            <span>Ежевичное пюре</span>
+            <svg class="hero-annotation-arrow arrow-flip-xy" viewBox="0 0 44 44" fill="none">
+                <path d="M4,8 C4,28 26,32 36,26" stroke="#fff" stroke-width="1.6" stroke-linecap="round"/>
+                <path d="M36,26 L28,24 M36,26 L32,34" stroke="#fff" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+        </div>
+
+        <div class="hero-annotation side-left" id="caption-3" style="top: 59%;">
+            <span>Таро латте</span>
+            <svg class="hero-annotation-arrow arrow-flip-y" viewBox="0 0 44 44" fill="none">
+                <path d="M4,8 C4,28 26,32 36,26" stroke="#fff" stroke-width="1.6" stroke-linecap="round"/>
+                <path d="M36,26 L28,24 M36,26 L32,34" stroke="#fff" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+        </div>
+
+        <div class="hero-annotation side-right" id="caption-4" style="top: 47%;">
+            <span>Матча</span>
+            <svg class="hero-annotation-arrow arrow-flip-xy" viewBox="0 0 44 44" fill="none">
+                <path d="M4,8 C4,28 26,32 36,26" stroke="#fff" stroke-width="1.6" stroke-linecap="round"/>
+                <path d="M36,26 L28,24 M36,26 L32,34" stroke="#fff" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+        </div>
+
+        <div class="hero-annotation side-left" id="caption-5" style="top: 38%;">
+            <span>Сырная пенка</span>
+            <svg class="hero-annotation-arrow" viewBox="0 0 44 44" fill="none">
+                <path d="M4,8 C4,28 26,32 36,26" stroke="#fff" stroke-width="1.6" stroke-linecap="round"/>
+                <path d="M36,26 L28,24 M36,26 L32,34" stroke="#fff" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+        </div>
+
+        <div class="hero-annotation side-right" id="caption-6" style="top: 16%;">
+            <span>Посыпка «черника–убе»</span>
+            <svg class="hero-annotation-arrow arrow-flip-x" viewBox="0 0 44 44" fill="none">
+                <path d="M4,8 C4,28 26,32 36,26" stroke="#fff" stroke-width="1.6" stroke-linecap="round"/>
+                <path d="M36,26 L28,24 M36,26 L32,34" stroke="#fff" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+        </div>
+
+        <div class="hero-intro" id="hero-intro">
+            <p class="hero-intro-label">Вы заказали —</p>
+            <h2 class="hero-intro-title">Taro Matcha Latte</h2>
+            <button class="hero-intro-button" id="hero-intro-button" type="button">Давай приготовим твой заказ</button>
+        </div>
+
+        <div class="hero-progress" id="hero-progress">
+            <p class="hero-progress-label">Начинаем готовить…</p>
+            <svg class="hero-progress-arc" viewBox="0 0 200 12" fill="none">
+                <path d="M6,6 L194,6" stroke="rgba(255,255,255,0.28)" stroke-width="5" stroke-linecap="round" pathLength="100"/>
+                <path class="hero-progress-fill" id="hero-progress-fill" d="M6,6 L194,6" stroke="#fff" stroke-width="5" stroke-linecap="round" pathLength="100" stroke-dasharray="100" stroke-dashoffset="100"/>
+            </svg>
+        </div>
+    </div>
+</section>
+
+<section class="next-section" id="next-section"></section>
+
+<script>
+const hero = document.getElementById('hero');
+const heroPin = document.getElementById('hero-pin');
+const nextSection = document.getElementById('next-section');
+const video = document.getElementById('hero-video');
+const heroIntro = document.getElementById('hero-intro');
+const heroIntroButton = document.getElementById('hero-intro-button');
+const heroProgress = document.getElementById('hero-progress');
+const heroProgressFill = document.getElementById('hero-progress-fill');
+
+// The page opens locked on the order-confirmation card; only once the
+// visitor taps through does scrolling — and with it the whole scroll-scrub
+// hero — become available at all. The "preparing" HUD takes over the same
+// spot once the card has faded out.
+heroIntroButton.addEventListener('click', () => {
+    document.documentElement.classList.remove('intro-active');
+    heroIntro.classList.add('is-hidden');
+    heroProgress.classList.add('is-visible');
+});
+
+// The video must never actually play — its position is driven purely by
+// scroll. Force a paused state as soon as metadata is available (defends
+// against any autoplay heuristics) and nudge the decoder with a tiny seek
+// instead of a play()/pause() cycle: iOS/Safari can fail to render a
+// seeked frame on a video that has never decoded anything, but seeking to
+// a near-zero time primes the decoder for that without ever starting
+// real playback.
+video.addEventListener('loadedmetadata', () => {
+    video.pause();
+    video.currentTime = 0.001;
+    seekToScrollPosition();
+}, { once: true });
+
+// Extra safety net: this video should never play on its own — if anything
+// ever puts it into a playing state (a stray play() call, a browser
+// heuristic, a user tap), pause it back immediately so its position stays
+// scroll-driven only.
+video.addEventListener('play', () => video.pause());
+
+// Progress is 0 the instant the hero's top reaches the viewport top, and 1
+// the instant its bottom reaches the viewport bottom — so the first frame
+// lines up with entering the section and the last frame with leaving it.
+function computeProgress() {
+    const scrollableHeight = hero.offsetHeight - window.innerHeight;
+    const scrolled = Math.min(Math.max(-hero.getBoundingClientRect().top, 0), scrollableHeight);
+    return scrollableHeight > 0 ? scrolled / scrollableHeight : 0;
+}
+
+// Ingredient labels, timed to when each one actually appears in the video
+// (checked frame-by-frame against assets/drink.mp4, whose duration is
+// ~5.99s): the boba going in first, then blackberry purée, taro latte,
+// matcha, cheese foam, and finally the blueberry-ube topping. Each one
+// fades in as its layer lands and then simply stays — scrolling further
+// only adds the next annotation rather than replacing the last one, so by
+// the end of the clip all six label the finished drink at once. Scrolling
+// back up still un-fades a label once its ingredient hasn't appeared yet,
+// since opacity is a pure function of the (reversible) scrub time.
+const captionTimings = [
+    { el: document.getElementById('caption-1'), fadeInStart: 1.5, fadeInEnd: 1.7 },
+    { el: document.getElementById('caption-2'), fadeInStart: 2.95, fadeInEnd: 3.15 },
+    { el: document.getElementById('caption-3'), fadeInStart: 3.4, fadeInEnd: 3.55 },
+    { el: document.getElementById('caption-4'), fadeInStart: 3.85, fadeInEnd: 3.97 },
+    { el: document.getElementById('caption-5'), fadeInStart: 4.16, fadeInEnd: 4.26 },
+    { el: document.getElementById('caption-6'), fadeInStart: 4.32, fadeInEnd: 4.45 },
+];
+
+function setCaptionOpacityAtTime(el, t, { fadeInStart, fadeInEnd }) {
+    let opacity;
+    if (t <= fadeInStart) {
+        opacity = 0;
+    } else if (t < fadeInEnd) {
+        opacity = (t - fadeInStart) / (fadeInEnd - fadeInStart);
+    } else {
+        opacity = 1;
+    }
+    el.style.opacity = opacity;
+}
+
+function updateCaptions(t) {
+    captionTimings.forEach(timing => setCaptionOpacityAtTime(timing.el, t, timing));
+}
+
+// The arc's path has pathLength="100", so its dash values are already in
+// percent — no need to measure the real geometry. Offsetting by
+// (100 - progress·100) reveals more of the stroke as progress climbs from
+// 0 to 1, i.e. the same 0–1 value driving the video scrub.
+function updateProgressArc(progress) {
+    heroProgressFill.style.strokeDashoffset = 100 - progress * 100;
+}
+
+// Reads the scroll position fresh on every call and maps it straight to a
+// video time — no eased/lagged value in between. The video must only ever
+// move because the user is actively scrolling, never keep drifting toward
+// a target on its own after they stop, so this stays a direct, immediate
+// function of scroll position rather than an animation with momentum.
+function seekToScrollPosition() {
+    if (!video.duration || video.seeking) return;
+    const progress = computeProgress();
+    const targetTime = progress * video.duration;
+    updateCaptions(targetTime);
+    updateProgressArc(progress);
+    if (Math.abs(video.currentTime - targetTime) < 0.008) return;
+    video.currentTime = targetTime;
+}
+
+// requestAnimationFrame drives the sync loop so the seek is always aligned
+// to the browser's own paint cycle, on both desktop and mobile (including
+// touch-momentum scrolling, which fires no discrete scroll events).
+function scrubLoop() {
+    seekToScrollPosition();
+    requestAnimationFrame(scrubLoop);
+}
+requestAnimationFrame(scrubLoop);
+
+// Pin the video (and hold it visible) for as long as any part of the hero
+// section is in the viewport; release it — letting the video disappear —
+// the instant the section is fully scrolled past.
+// A 1px negative bottom margin guarantees the section is unambiguously
+// "not intersecting" right as its last pixel clears the viewport, instead
+// of leaving that release moment to land exactly on a zero-area edge case.
+const heroObserver = new IntersectionObserver((entries) => {
+    entries.forEach(entry => {
+        heroPin.classList.toggle('is-pinned', entry.isIntersecting);
+    });
+}, { threshold: 0, rootMargin: '0px 0px -1px 0px' });
+heroObserver.observe(hero);
+
+// Fade the next section in once it enters the viewport
+const nextSectionObserver = new IntersectionObserver((entries) => {
+    entries.forEach(entry => {
+        if (entry.isIntersecting) {
+            nextSection.classList.add('is-visible');
+        }
+    });
+}, { threshold: 0.15 });
+nextSectionObserver.observe(nextSection);
+</script>
+
+</body>
+</html>
