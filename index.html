@@ -338,24 +338,44 @@ heroIntroButton.addEventListener('click', () => {
     heroProgress.classList.add('is-visible');
 });
 
+// iOS Safari is far more conservative than desktop browsers about actually
+// fetching/decoding a <video> that isn't autoplaying — preload="auto" alone
+// is only a hint, and under Low Power Mode iOS ignores it outright, leaving
+// the video stuck at readyState 0 forever (a permanently black hero). An
+// explicit load() forces the fetch to start regardless of that heuristic.
+video.load();
+
 // The video must never actually play — its position is driven purely by
-// scroll. Force a paused state as soon as metadata is available (defends
-// against any autoplay heuristics) and nudge the decoder with a tiny seek
-// instead of a play()/pause() cycle: iOS/Safari can fail to render a
-// seeked frame on a video that has never decoded anything, but seeking to
-// a near-zero time primes the decoder for that without ever starting
-// real playback.
+// scroll. But iOS/Safari specifically also needs one real (if instant)
+// play()/pause() cycle before it will reliably decode and paint a *seeked*
+// frame at all — without it, currentTime assignments can silently do
+// nothing on a video that has never played, which is the other half of why
+// this needs to run once metadata is available, not just an explicit load().
 video.addEventListener('loadedmetadata', () => {
-    video.pause();
-    video.currentTime = 0.001;
-    seekToScrollPosition();
+    const primePromise = video.play();
+    if (primePromise && typeof primePromise.then === 'function') {
+        primePromise.then(() => {
+            video.pause();
+            seekToScrollPosition();
+        }).catch(() => { /* muted+playsinline should always be allowed to prime */ });
+    } else {
+        video.pause();
+        seekToScrollPosition();
+    }
 }, { once: true });
 
-// Extra safety net: this video should never play on its own — if anything
-// ever puts it into a playing state (a stray play() call, a browser
-// heuristic, a user tap), pause it back immediately so its position stays
-// scroll-driven only.
-video.addEventListener('play', () => video.pause());
+// Extra safety net: beyond that one priming cycle above, this video should
+// never play on its own — if anything else ever puts it into a playing
+// state (a stray play() call, a browser heuristic, a user tap), pause it
+// back immediately so its position stays scroll-driven only.
+let hasPrimed = false;
+video.addEventListener('play', () => {
+    if (hasPrimed) {
+        video.pause();
+    } else {
+        hasPrimed = true;
+    }
+});
 
 // Progress is 0 the instant the hero's top reaches the viewport top, and 1
 // the instant its bottom reaches the viewport bottom — so the first frame
